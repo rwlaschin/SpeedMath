@@ -1,10 +1,20 @@
 # -*- coding: utf-8 -*-
-import select
 import sys
 import os
 import random
 import threading
 import time
+import platform
+
+__system = platform.system()
+if __system == 'Linux':
+    import select
+else:
+    if __system == 'Windows':
+        import msvcrt
+    else:
+        print "Unsupported platform!!"
+        sys.exit(1)
 
 timelimits = {'beginner': 30, 'easy': 15, 'normal':10, 'fast':5, 'ultra': 3}
 numberofquestions = {'short': 10, 'normal': 15, 'long': 25}
@@ -46,12 +56,6 @@ class Addition(Problem):
         ans = n1 + n2
         self.StoreProblem( [n1,n2,ans],"%d + %d = %d" % (n1,n2,ans))
         return "%d + %d" % (n1,n2), ans
-
-def swap(n1,n2):
-    tmp = n2
-    n2 = n1
-    n1 = tmp
-    return n1,n2
 
 class Subtraction(Problem):
     def __init__(self,dataSet): 
@@ -99,7 +103,71 @@ hSetup = {
 answerstrings = ["Correct!!","Perfect!!","Yes!!","Great Job!!"]
 lanswerstrings = len(answerstrings)
 
-def getrandom(value): return random.randint(0,value-1)
+def getrandom(value):
+    return random.randint(0,value-1)
+
+def swap(n1,n2):
+    tmp = n2
+    n2 = n1
+    n1 = tmp
+    return n1,n2
+
+def readinputLinux(timelimit):
+    global correctanswers, incorrectanswers
+    sys.stdout.flush()
+    starttime = time.time()
+    rfd = select.select([sys.stdin],[],[],timelimit)[0]
+    delta = time.time() - starttime
+    inputAnswer = "A little faster next time! %d" % answer
+    for fd in rfd:
+        # get answer from input
+        d = os.read(fd.fileno(), 16384)
+        try:
+            userAnswer = int(d)
+            problem.UpdateProblemResults(userAnswer,delta)
+            if answer == int(userAnswer): 
+                inputAnswer = answerstrings[getrandom(lanswerstrings)]
+                correctanswers+=1
+            else: 
+                inputAnswer = "Close!  It's actually %d" % answer
+        except ValueError:
+            inputAnswer = "Oops!  I didn't recognize that number"
+            incorrectanswers+=1
+    return (inputAnswer,delta)
+
+def readinputWindows(timelimit):
+    def tryRead(rh,wh,eh,timelimit):
+        endtime = time.time() + timelimit
+        while (endtime - time.time()) > 0:
+            # try to read from stdio
+            if msvcrt.kbhit():
+                return (rh,[],[])
+            time.sleep(.1)
+        return ([],[],[])
+    global correctanswers, incorrectanswers
+    sys.stdout.flush()
+    starttime = time.time()
+    # try to read for timelimit seconds (peek?)
+    # if peek worked, return filehandle disgused in a list
+    # otherwise abort read after reaching timeout
+    rfd = tryRead([sys.stdin],[],[],timelimit)[0]
+    delta = time.time() - starttime
+    inputAnswer = "A little faster next time! %d" % answer
+    for fd in rfd:
+        # get answer from input
+        d = os.read(fd.fileno(), 16384)
+        try:
+            userAnswer = int(d)
+            problem.UpdateProblemResults(userAnswer,delta)
+            if answer == int(userAnswer): 
+                inputAnswer = answerstrings[getrandom(lanswerstrings)]
+                correctanswers+=1
+            else: 
+                inputAnswer = "Close!  It's actually %d" % answer
+        except ValueError:
+            inputAnswer = "Oops!  I didn't recognize that number"
+            incorrectanswers+=1
+    return (inputAnswer,delta)
 
 # choose a level
 def ChooseLevel( level = None ):
@@ -171,7 +239,13 @@ def usage(prgname):
         count += 1
     sys.exit(1)
 
+if __system == 'Linux':
+    readinput = readinputLinux
+elif __system == 'Windows':
+    readinput = readinputWindows
+
 if __name__ == "__main__":
+    global correctanswers, incorrectanswers
     (results, count, correctanswers) = ([],1,0)
     timelimit = 5 
     cProblems = 25
@@ -208,31 +282,16 @@ if __name__ == "__main__":
     for problem in levelData:
         (equation,answer) = problem.CreateProblem()
         print "%d. %s ? " % (count,equation),
-        sys.stdout.flush()
-        starttime = time.time()
-        rfd = select.select([sys.stdin],[],[],timelimit)[0]
-        delta = time.time() - starttime
-        inputAnswer = "A little faster next time! %d" % answer
-        for fd in rfd:
-            # get answer from input
-            d = os.read(fd.fileno(), 16384)
-            try:
-                userAnswer = int(d)
-                problem.UpdateProblemResults(userAnswer,delta)
-                if answer == int(userAnswer): 
-                    inputAnswer = answerstrings[getrandom(lanswerstrings)]
-                    correctanswers+=1
-                else: 
-                    inputAnswer = "Close!  It's actually %d" % answer
-            except ValueError:
-                inputAnswer = "Oops!  I didn't recognize that number"
-                incorrectanswers+=1
+        (inputAnswer,delta) = readinput(timelimit)
         print inputAnswer
         count+=1
     problemdelta = time.time() - problemstart
     print ""
-    print "Great job!  You answered %s out of %s questions correctly." % (correctanswers,cProblems)
+    print "You answered %s out of %s questions correctly." % (correctanswers,cProblems)
     print "That's %.1f %% correct.  It took you %.0f seconds to answer all the questions." % (100*correctanswers/cProblems,problemdelta)
     if 100*correctanswers/(cProblems+1.0) > 80 and (cProblems*timelimit+1.0)/problemdelta > 1:
         print "You should think about trying the next level, or the same level at a quicker pace"
     print ""
+
+import code
+code.interact()
